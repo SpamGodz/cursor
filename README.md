@@ -1,0 +1,2 @@
+# cursor
+ai project
