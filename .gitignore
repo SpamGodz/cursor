@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/mydatabase.db
+data/output.csv
+data/test.db
