@@ -20,7 +20,7 @@ class CursorConfig:
     model: str = "gpt-4o-mini"
 
     @staticmethod
-    def from_env() -> "CursorConfig":
+    def from_env() -> CursorConfig:
         api_key = os.getenv("CURSOR_API_KEY")
         if not api_key:
             raise RuntimeError("Missing CURSOR_API_KEY in environment.")
