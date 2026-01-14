@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "SpamGodz" }]
-dependencies = []
+dependencies = [
+  "openai>=1.0.0",
+]
 
 [project.optional-dependencies]
 dev = [

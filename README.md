@@ -4,20 +4,33 @@ Minimal Python scaffold for an "AI project" with a clean `src/` layout, tests, l
 
 ## Quickstart
 
+### Configure Cursor / LLM
+
+Set your key (and optionally endpoint + model):
+
+```bash
+export CURSOR_API_KEY="...your key..."
+# Optional (for OpenAI-compatible endpoints):
+export CURSOR_BASE_URL="..."
+export CURSOR_MODEL="gpt-4o-mini"
+```
+
 Create a virtual environment, then install:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e ".[dev]"
+python3 -m pip install -U pip
+python3 -m pip install -e ".[dev]"
 ```
 
 Run the CLI:
 
 ```bash
-python -m cursor_ai --help
-python -m cursor_ai hello
+python3 -m cursor_ai --help
+python3 -m cursor_ai hello
+python3 -m cursor_ai run "Create a TODO.md with a project plan" --workspace .
+python3 -m cursor_ai chat --workspace .
 ```
 
 ## Development
@@ -25,12 +38,12 @@ python -m cursor_ai hello
 Format + lint:
 
 ```bash
-python -m ruff format .
-python -m ruff check .
+python3 -m ruff format .
+python3 -m ruff check .
 ```
 
 Run tests:
 
 ```bash
-python -m pytest -q
+python3 -m pytest -q
 ```
