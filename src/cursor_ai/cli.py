@@ -6,6 +6,7 @@ from pathlib import Path
 
 from cursor_ai.agent import Agent
 from cursor_ai.config import CursorConfig
+from cursor_ai.dashboard.server import create_app
 from cursor_ai.providers.openai_compat import OpenAICompatProvider
 from cursor_ai.tools.base import ToolRegistry
 from cursor_ai.tools.fs import ListFilesTool, ReadFileTool, WriteFileTool
@@ -19,6 +20,9 @@ class Args:
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+    host: str | None = None
+    port: int | None = None
+    db_path: Path | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -37,6 +41,17 @@ def parse_args(argv: list[str] | None = None) -> Args:
     chat_p.add_argument("--api-key", type=str, default=None, help="Override CURSOR_API_KEY.")
     chat_p.add_argument("--base-url", type=str, default=None, help="Override CURSOR_BASE_URL.")
     chat_p.add_argument("--model", type=str, default=None, help="Override CURSOR_MODEL.")
+
+    dash_p = sub.add_parser("dashboard", help="Run the web dashboard.")
+    dash_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host.")
+    dash_p.add_argument("--port", type=int, default=8000, help="Bind port.")
+    dash_p.add_argument("--workspace", type=Path, default=Path.cwd(), help="Workspace root.")
+    dash_p.add_argument(
+        "--db-path",
+        type=Path,
+        default=Path.cwd() / ".cursor_ai" / "dashboard.sqlite",
+        help="SQLite database path.",
+    )
     ns = parser.parse_args(argv)
     return Args(
         command=ns.command,
@@ -45,6 +60,9 @@ def parse_args(argv: list[str] | None = None) -> Args:
         api_key=getattr(ns, "api_key", None),
         base_url=getattr(ns, "base_url", None),
         model=getattr(ns, "model", None),
+        host=getattr(ns, "host", None),
+        port=getattr(ns, "port", None),
+        db_path=getattr(ns, "db_path", None),
     )
 
 
@@ -112,4 +130,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(out)
         except EOFError:
             return 0
+    if args.command == "dashboard":
+        import uvicorn
+
+        ws = (args.workspace or Path.cwd()).resolve()
+        db_path = (args.db_path or (Path.cwd() / ".cursor_ai" / "dashboard.sqlite")).resolve()
+        app = create_app(db_path=db_path, workspace=ws)
+        uvicorn.run(
+            app, host=args.host or "127.0.0.1", port=int(args.port or 8000), log_level="info"
+        )
+        return 0
     raise AssertionError(f"Unhandled command: {args.command}")

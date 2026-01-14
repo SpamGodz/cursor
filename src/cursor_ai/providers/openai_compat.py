@@ -11,6 +11,7 @@ from cursor_ai.config import CursorConfig
 class ChatResult:
     content: str | None
     tool_calls: list[object] | None
+    usage: dict | None
     raw: object
 
 
@@ -34,6 +35,17 @@ class OpenAICompatProvider:
             tools=tools,
         )
         msg = resp.choices[0].message
+        usage = None
+        if getattr(resp, "usage", None) is not None:
+            u = resp.usage
+            usage = {
+                "prompt_tokens": getattr(u, "prompt_tokens", None),
+                "completion_tokens": getattr(u, "completion_tokens", None),
+                "total_tokens": getattr(u, "total_tokens", None),
+            }
         return ChatResult(
-            content=msg.content, tool_calls=getattr(msg, "tool_calls", None), raw=resp
+            content=msg.content,
+            tool_calls=getattr(msg, "tool_calls", None),
+            usage=usage,
+            raw=resp,
         )

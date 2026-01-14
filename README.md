@@ -31,6 +31,7 @@ python3 -m cursor_ai --help
 python3 -m cursor_ai hello
 python3 -m cursor_ai run "Create a TODO.md with a project plan" --workspace .
 python3 -m cursor_ai chat --workspace .
+python3 -m cursor_ai dashboard --workspace . --port 8000
 ```
 
 ## Development

@@ -12,6 +12,9 @@ license = { text = "Proprietary" }
 authors = [{ name = "SpamGodz" }]
 dependencies = [
   "openai>=1.0.0",
+  "fastapi>=0.111.0",
+  "uvicorn>=0.30.0",
+  "jinja2>=3.1.4",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +25,10 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cursor_ai"]
+include = [
+  "src/cursor_ai/dashboard/templates/**",
+  "src/cursor_ai/dashboard/static/**",
+]
 
 [tool.ruff]
 line-length = 100
