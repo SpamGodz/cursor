@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cursor AI Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <div class="brand">Cursor AI Studio</div>
+        <div class="subtle">Workspace: <span id="workspace">{{ workspace }}</span></div>
+      </div>
+      <nav class="nav">
+        <a class="navlink" href="/">Monitor</a>
+        <a class="navlink active" href="/studio">Studio</a>
+      </nav>
+    </header>
+
+    <main class="grid studio">
+      <section class="card">
+        <h2>Agentic preferences</h2>
+        <div class="row">
+          <label class="label">Model</label>
+          <input id="prefModel" class="input" placeholder="(optional) override model" />
+        </div>
+        <div class="row">
+          <label class="label">Base URL</label>
+          <input id="prefBaseUrl" class="input" placeholder="(optional) override base_url" />
+        </div>
+        <div class="row">
+          <label class="label">Max steps</label>
+          <input id="prefMaxSteps" class="input" type="number" min="1" max="100" />
+        </div>
+        <div class="row">
+          <label class="label">Allow fs_write</label>
+          <input id="prefEnableWrite" type="checkbox" />
+        </div>
+        <div class="row">
+          <label class="label">System prompt</label>
+        </div>
+        <textarea id="prefSystemPrompt" class="textarea" rows="8"></textarea>
+        <div class="row">
+          <button id="savePrefs" class="btn primary">Save preferences</button>
+          <span class="subtle" id="prefsStatus"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Feature building board</h2>
+        <div class="row">
+          <input id="featureTitle" class="input" placeholder="Feature title" />
+          <button id="addFeature" class="btn primary">Add</button>
+        </div>
+        <textarea id="featureDesc" class="textarea" rows="4" placeholder="Description / acceptance criteria"></textarea>
+        <div class="board">
+          <div class="col">
+            <div class="coltitle">Backlog</div>
+            <div id="colBacklog" class="colbody"></div>
+          </div>
+          <div class="col">
+            <div class="coltitle">In progress</div>
+            <div id="colProgress" class="colbody"></div>
+          </div>
+          <div class="col">
+            <div class="coltitle">Done</div>
+            <div id="colDone" class="colbody"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card wide">
+        <h2>Chat (train / iterate “as if you were here”)</h2>
+        <div class="row">
+          <button id="newChat" class="btn">New chat</button>
+          <div class="pill">Chat id: <span id="chatId">-</span></div>
+        </div>
+        <div id="chatLog" class="chatlog"></div>
+        <div class="row">
+          <input id="chatInput" class="input" placeholder="Message..." />
+          <button id="chatSend" class="btn primary">Send</button>
+        </div>
+        <p class="hint">
+          This chat uses your saved preferences, can use tools, and stores transcripts in the dashboard DB.
+        </p>
+      </section>
+    </main>
+
+    <script src="/static/studio.js"></script>
+  </body>
+</html>
+

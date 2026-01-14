@@ -31,6 +31,16 @@ def create_app(*, db_path: Path, workspace: Path) -> FastAPI:
             },
         )
 
+    @app.get("/studio", response_class=HTMLResponse)
+    async def studio(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            "studio.html",
+            {
+                "request": request,
+                "workspace": str(workspace),
+            },
+        )
+
     @app.get("/api/stats", response_class=JSONResponse)
     async def stats() -> JSONResponse:
         return JSONResponse(manager.get_stats())
@@ -52,6 +62,9 @@ def create_app(*, db_path: Path, workspace: Path) -> FastAPI:
         api_key: str | None = None
         base_url: str | None = None
         model: str | None = None
+        system_prompt: str | None = None
+        max_steps: int | None = None
+        enable_write: bool | None = None
 
     @app.post("/api/runs/start", response_class=JSONResponse)
     async def run_start(body: StartBody) -> JSONResponse:
@@ -62,6 +75,9 @@ def create_app(*, db_path: Path, workspace: Path) -> FastAPI:
             api_key=body.api_key,
             base_url=body.base_url,
             model=body.model,
+            system_prompt=body.system_prompt,
+            max_steps=body.max_steps,
+            enable_write=body.enable_write,
         )
         return JSONResponse({"run_id": run_id})
 
@@ -92,5 +108,60 @@ def create_app(*, db_path: Path, workspace: Path) -> FastAPI:
                     return
 
         return StreamingResponse(gen(), media_type="text/event-stream")
+
+    @app.get("/api/preferences", response_class=JSONResponse)
+    async def preferences_get() -> JSONResponse:
+        return JSONResponse(manager.get_preferences())
+
+    class PreferencesBody(BaseModel):
+        system_prompt: str | None = None
+        max_steps: int | None = None
+        enable_write: bool | None = None
+        model: str | None = None
+        base_url: str | None = None
+
+    @app.post("/api/preferences", response_class=JSONResponse)
+    async def preferences_set(body: PreferencesBody) -> JSONResponse:
+        saved = manager.set_preferences(body.model_dump())
+        return JSONResponse(saved)
+
+    @app.get("/api/features", response_class=JSONResponse)
+    async def features_list() -> JSONResponse:
+        return JSONResponse({"features": manager.list_features()})
+
+    class FeatureCreateBody(BaseModel):
+        title: str
+        description: str = ""
+
+    @app.post("/api/features", response_class=JSONResponse)
+    async def feature_create(body: FeatureCreateBody) -> JSONResponse:
+        out = manager.add_feature(title=body.title, description=body.description)
+        return JSONResponse(out)
+
+    class FeatureMoveBody(BaseModel):
+        status: str
+
+    @app.post("/api/features/{feature_id}/move", response_class=JSONResponse)
+    async def feature_move(feature_id: str, body: FeatureMoveBody) -> JSONResponse:
+        manager.move_feature(feature_id=feature_id, status=body.status)
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/chat/start", response_class=JSONResponse)
+    async def chat_start() -> JSONResponse:
+        return JSONResponse({"chat_id": manager.start_chat()})
+
+    @app.get("/api/chat/{chat_id}", response_class=JSONResponse)
+    async def chat_get(chat_id: str) -> JSONResponse:
+        return JSONResponse({"messages": manager.list_chat_messages(chat_id)})
+
+    class ChatSendBody(BaseModel):
+        message: str
+        workspace: str | None = None
+
+    @app.post("/api/chat/{chat_id}/send", response_class=JSONResponse)
+    async def chat_send(chat_id: str, body: ChatSendBody) -> JSONResponse:
+        ws = Path(body.workspace).expanduser().resolve() if body.workspace else workspace
+        out = manager.chat_send(chat_id=chat_id, message=body.message, workspace=ws)
+        return JSONResponse(out)
 
     return app

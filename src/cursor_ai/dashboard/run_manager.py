@@ -27,7 +27,12 @@ class LiveRun:
 
 
 def _build_agent(
-    *, workspace: Path, api_key: str | None, base_url: str | None, model: str | None
+    *,
+    workspace: Path,
+    api_key: str | None,
+    base_url: str | None,
+    model: str | None,
+    enable_write: bool,
 ) -> Agent:
     cfg = CursorConfig.from_env()
     if api_key is not None:
@@ -37,13 +42,13 @@ def _build_agent(
     if model is not None:
         cfg = CursorConfig(api_key=cfg.api_key, base_url=cfg.base_url, model=model)
 
-    tools = ToolRegistry(
-        tools=[
-            ListFilesTool(workspace=workspace),
-            ReadFileTool(workspace=workspace),
-            WriteFileTool(workspace=workspace),
-        ]
-    )
+    tools_list = [
+        ListFilesTool(workspace=workspace),
+        ReadFileTool(workspace=workspace),
+    ]
+    if enable_write:
+        tools_list.append(WriteFileTool(workspace=workspace))
+    tools = ToolRegistry(tools=tools_list)
     provider = OpenAICompatProvider(cfg)
     return Agent(provider=provider, tools=tools)
 
@@ -54,6 +59,89 @@ class RunManager:
         db.init(self._conn)
         self._lock = threading.Lock()
         self._live: dict[str, LiveRun] = {}
+
+    # -------- Preferences / Studio ----------
+    def get_preferences(self) -> dict[str, Any]:
+        prefs = db.list_preferences(self._conn)
+        # Defaults (so UI is usable on first load)
+        prefs.setdefault(
+            "system_prompt",
+            (
+                "You are an agentic assistant. Use tools when helpful. "
+                "When you are done, respond with a final answer."
+            ),
+        )
+        prefs.setdefault("max_steps", 24)
+        prefs.setdefault("enable_write", True)
+        prefs.setdefault("model", None)
+        prefs.setdefault("base_url", None)
+        return prefs
+
+    def set_preferences(self, prefs: dict[str, Any]) -> dict[str, Any]:
+        # Save only known keys
+        allowed = {"system_prompt", "max_steps", "enable_write", "model", "base_url"}
+        for k, v in prefs.items():
+            if k in allowed:
+                db.set_preference(self._conn, key=k, value=v)
+        return self.get_preferences()
+
+    def list_features(self) -> list[dict[str, Any]]:
+        return db.list_features(self._conn, limit=200)
+
+    def add_feature(self, *, title: str, description: str) -> dict[str, Any]:
+        fid = uuid.uuid4().hex
+        now = db.utcnow()
+        db.insert_feature(
+            self._conn,
+            feature_id=fid,
+            title=title,
+            description=description,
+            status="backlog",
+            now=now,
+        )
+        return {"id": fid}
+
+    def move_feature(self, *, feature_id: str, status: str) -> None:
+        db.update_feature_status(self._conn, feature_id=feature_id, status=status, now=db.utcnow())
+
+    def start_chat(self) -> str:
+        cid = uuid.uuid4().hex
+        db.insert_chat(self._conn, chat_id=cid, now=db.utcnow())
+        return cid
+
+    def list_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
+        return db.list_chat_messages(self._conn, chat_id=chat_id, limit=500)
+
+    def chat_send(self, *, chat_id: str, message: str, workspace: Path) -> dict[str, Any]:
+        prefs = self.get_preferences()
+        system_prompt = str(prefs.get("system_prompt") or "")
+        max_steps = int(prefs.get("max_steps") or 24)
+        enable_write = bool(prefs.get("enable_write"))
+        model = prefs.get("model")
+        base_url = prefs.get("base_url")
+
+        agent = _build_agent(
+            workspace=workspace,
+            api_key=None,
+            base_url=str(base_url) if base_url else None,
+            model=str(model) if model else None,
+            enable_write=enable_write,
+        )
+
+        db.insert_chat_message(
+            self._conn, chat_id=chat_id, ts=db.utcnow(), role="user", content=message
+        )
+
+        history = db.list_chat_messages(self._conn, chat_id=chat_id, limit=500)
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"]})
+
+        out = agent.run(messages=messages, max_steps=max_steps)
+        db.insert_chat_message(
+            self._conn, chat_id=chat_id, ts=db.utcnow(), role="assistant", content=out
+        )
+        return {"assistant": out}
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         return [r.as_dict() for r in db.list_runs(self._conn, limit=limit)]
@@ -107,6 +195,9 @@ class RunManager:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        system_prompt: str | None = None,
+        max_steps: int | None = None,
+        enable_write: bool | None = None,
     ) -> str:
         run_id = uuid.uuid4().hex
         started_at = db.utcnow()
@@ -142,16 +233,25 @@ class RunManager:
             total_tokens = 0
 
             try:
+                prefs = self.get_preferences()
+                sp = system_prompt or str(prefs.get("system_prompt") or "")
+                ms = int(max_steps or prefs.get("max_steps") or 24)
+                ew = bool(enable_write if enable_write is not None else prefs.get("enable_write"))
+                effective_model = model or (prefs.get("model") if prefs.get("model") else None)
+                effective_base_url = base_url or (
+                    prefs.get("base_url") if prefs.get("base_url") else None
+                )
                 agent = _build_agent(
-                    workspace=workspace, api_key=api_key, base_url=base_url, model=model
+                    workspace=workspace,
+                    api_key=api_key,
+                    base_url=effective_base_url,
+                    model=effective_model,
+                    enable_write=ew,
                 )
                 messages: list[dict] = [
                     {
                         "role": "system",
-                        "content": (
-                            "You are an agentic assistant. Use tools when helpful. "
-                            "When you are done, respond with a final answer."
-                        ),
+                        "content": sp,
                     },
                     {"role": "user", "content": goal},
                 ]
@@ -179,7 +279,7 @@ class RunManager:
 
                 def run_in_thread() -> str:
                     return agent.run(
-                        messages=messages, max_steps=24, stop_event=stop_event, on_event=on_event
+                        messages=messages, max_steps=ms, stop_event=stop_event, on_event=on_event
                     )
 
                 result = await asyncio.to_thread(run_in_thread)

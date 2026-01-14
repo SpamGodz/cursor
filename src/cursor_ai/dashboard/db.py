@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -54,6 +55,45 @@ def init(conn: sqlite3.Connection) -> None:
           run_id TEXT NOT NULL,
           ts TEXT NOT NULL,
           kind TEXT NOT NULL,
+          content TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS preferences (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS features (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chats (
+          id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          chat_id TEXT NOT NULL,
+          ts TEXT NOT NULL,
+          role TEXT NOT NULL,
           content TEXT NOT NULL
         )
         """
@@ -202,3 +242,108 @@ def list_events(conn: sqlite3.Connection, run_id: str, limit: int = 500) -> list
         (run_id, limit),
     ).fetchall()
     return [{"ts": r["ts"], "kind": r["kind"], "content": r["content"]} for r in rows]
+
+
+def set_preference(conn: sqlite3.Connection, *, key: str, value: Any) -> None:
+    conn.execute(
+        """
+        INSERT INTO preferences (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (key, json.dumps(value, ensure_ascii=False), to_iso(utcnow())),
+    )
+    conn.commit()
+
+
+def get_preference(conn: sqlite3.Connection, *, key: str) -> Any | None:
+    row = conn.execute("SELECT value FROM preferences WHERE key = ?", (key,)).fetchone()
+    if not row:
+        return None
+    return json.loads(row["value"])
+
+
+def list_preferences(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = conn.execute("SELECT key, value FROM preferences").fetchall()
+    out: dict[str, Any] = {}
+    for r in rows:
+        out[r["key"]] = json.loads(r["value"])
+    return out
+
+
+def insert_feature(
+    conn: sqlite3.Connection,
+    *,
+    feature_id: str,
+    title: str,
+    description: str,
+    status: str,
+    now: datetime,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO features (id, title, description, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (feature_id, title, description, status, to_iso(now), to_iso(now)),
+    )
+    conn.commit()
+
+
+def update_feature_status(
+    conn: sqlite3.Connection, *, feature_id: str, status: str, now: datetime
+) -> None:
+    conn.execute(
+        "UPDATE features SET status = ?, updated_at = ? WHERE id = ?",
+        (status, to_iso(now), feature_id),
+    )
+    conn.commit()
+
+
+def list_features(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        (
+            "SELECT id, title, description, status, created_at, updated_at "
+            "FROM features ORDER BY updated_at DESC LIMIT ?"
+        ),
+        (limit,),
+    ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "title": r["title"],
+            "description": r["description"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+        }
+        for r in rows
+    ]
+
+
+def insert_chat(conn: sqlite3.Connection, *, chat_id: str, now: datetime) -> None:
+    conn.execute(
+        "INSERT INTO chats (id, created_at) VALUES (?, ?)",
+        (chat_id, to_iso(now)),
+    )
+    conn.commit()
+
+
+def insert_chat_message(
+    conn: sqlite3.Connection, *, chat_id: str, ts: datetime, role: str, content: str
+) -> None:
+    conn.execute(
+        "INSERT INTO chat_messages (chat_id, ts, role, content) VALUES (?, ?, ?, ?)",
+        (chat_id, to_iso(ts), role, content),
+    )
+    conn.commit()
+
+
+def list_chat_messages(
+    conn: sqlite3.Connection, *, chat_id: str, limit: int = 500
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT ts, role, content FROM chat_messages WHERE chat_id = ? ORDER BY ts ASC LIMIT ?",
+        (chat_id, limit),
+    ).fetchall()
+    return [{"ts": r["ts"], "role": r["role"], "content": r["content"]} for r in rows]
