@@ -27,4 +27,3 @@ class CursorConfig:
         base_url = os.getenv("CURSOR_BASE_URL")
         model = os.getenv("CURSOR_MODEL") or "gpt-4o-mini"
         return CursorConfig(api_key=api_key, base_url=base_url, model=model)
-

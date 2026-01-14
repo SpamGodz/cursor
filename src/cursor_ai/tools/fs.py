@@ -64,7 +64,10 @@ class ReadFileTool:
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative file path under workspace."},
+                    "path": {
+                        "type": "string",
+                        "description": "Relative file path under workspace.",
+                    },
                 },
                 "required": ["path"],
                 "additionalProperties": False,
@@ -94,7 +97,10 @@ class WriteFileTool:
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative file path under workspace."},
+                    "path": {
+                        "type": "string",
+                        "description": "Relative file path under workspace.",
+                    },
                     "content": {"type": "string", "description": "Full file contents."},
                     "mkdirs": {"type": "boolean", "description": "Create parent dirs if needed."},
                 },
@@ -112,4 +118,3 @@ class WriteFileTool:
             p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return {"ok": True}
-

@@ -9,11 +9,9 @@ class Tool(Protocol):
     name: str
     description: str
 
-    def schema(self) -> dict[str, Any]:
-        ...
+    def schema(self) -> dict[str, Any]: ...
 
-    def run(self, arguments: dict[str, Any]) -> Any:
-        ...
+    def run(self, arguments: dict[str, Any]) -> Any: ...
 
 
 @dataclass
@@ -34,4 +32,3 @@ class ToolRegistry:
         args = json.loads(arguments_json or "{}")
         result = tool.run(args)
         return json.dumps(result, ensure_ascii=False)
-

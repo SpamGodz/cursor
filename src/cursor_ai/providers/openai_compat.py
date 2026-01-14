@@ -34,5 +34,6 @@ class OpenAICompatProvider:
             tools=tools,
         )
         msg = resp.choices[0].message
-        return ChatResult(content=msg.content, tool_calls=getattr(msg, "tool_calls", None), raw=resp)
-
+        return ChatResult(
+            content=msg.content, tool_calls=getattr(msg, "tool_calls", None), raw=resp
+        )
