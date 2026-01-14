@@ -164,4 +164,107 @@ def create_app(*, db_path: Path, workspace: Path) -> FastAPI:
         out = manager.chat_send(chat_id=chat_id, message=body.message, workspace=ws)
         return JSONResponse(out)
 
+    # -------- Evals / improvements (user verified) ----------
+    @app.get("/api/evals/suites", response_class=JSONResponse)
+    async def eval_suites() -> JSONResponse:
+        return JSONResponse({"suites": manager.list_eval_suites()})
+
+    class EvalSuiteCreateBody(BaseModel):
+        name: str
+
+    @app.post("/api/evals/suites", response_class=JSONResponse)
+    async def eval_suite_create(body: EvalSuiteCreateBody) -> JSONResponse:
+        return JSONResponse(manager.create_eval_suite(name=body.name))
+
+    @app.get("/api/evals/suites/{suite_id}/cases", response_class=JSONResponse)
+    async def eval_cases(suite_id: str) -> JSONResponse:
+        return JSONResponse({"cases": manager.list_eval_cases(suite_id)})
+
+    class EvalCaseCreateBody(BaseModel):
+        title: str
+        goal: str
+        rubric: str | None = None
+
+    @app.post("/api/evals/suites/{suite_id}/cases", response_class=JSONResponse)
+    async def eval_case_create(suite_id: str, body: EvalCaseCreateBody) -> JSONResponse:
+        return JSONResponse(
+            manager.add_eval_case(
+                suite_id=suite_id,
+                title=body.title,
+                goal=body.goal,
+                rubric=body.rubric,
+            )
+        )
+
+    class EvalRunStartBody(BaseModel):
+        suite_id: str
+        workspace: str | None = None
+        label: str | None = None
+
+    @app.post("/api/evals/run", response_class=JSONResponse)
+    async def eval_run_start(body: EvalRunStartBody) -> JSONResponse:
+        ws = Path(body.workspace).expanduser().resolve() if body.workspace else workspace
+        eval_run_id = await manager.start_eval(
+            suite_id=body.suite_id,
+            workspace=ws,
+            label=body.label,
+        )
+        return JSONResponse({"eval_run_id": eval_run_id})
+
+    @app.get("/api/evals/runs", response_class=JSONResponse)
+    async def eval_runs() -> JSONResponse:
+        return JSONResponse({"runs": manager.list_eval_runs()})
+
+    @app.get("/api/evals/runs/{eval_run_id}", response_class=JSONResponse)
+    async def eval_run_get(eval_run_id: str) -> JSONResponse:
+        r = manager.get_eval_run(eval_run_id)
+        if r is None:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        return JSONResponse(r)
+
+    @app.get("/api/evals/runs/{eval_run_id}/results", response_class=JSONResponse)
+    async def eval_run_results(eval_run_id: str) -> JSONResponse:
+        return JSONResponse({"results": manager.get_eval_results(eval_run_id)})
+
+    class EvalCaseReviewBody(BaseModel):
+        verdict: str
+        notes: str | None = None
+
+    @app.post("/api/evals/runs/{eval_run_id}/cases/{case_id}/review", response_class=JSONResponse)
+    async def eval_case_review(
+        eval_run_id: str, case_id: str, body: EvalCaseReviewBody
+    ) -> JSONResponse:
+        manager.review_eval_case(
+            eval_run_id=eval_run_id,
+            case_id=case_id,
+            verdict=body.verdict,
+            notes=body.notes,
+        )
+        return JSONResponse({"ok": True})
+
+    class EvalApproveBody(BaseModel):
+        notes: str | None = None
+
+    @app.post("/api/evals/runs/{eval_run_id}/approve", response_class=JSONResponse)
+    async def eval_approve(eval_run_id: str, body: EvalApproveBody) -> JSONResponse:
+        try:
+            out = manager.approve_improvement(eval_run_id=eval_run_id, notes=body.notes)
+        except KeyError:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        return JSONResponse(out)
+
+    @app.get("/api/evals/improvements", response_class=JSONResponse)
+    async def eval_improvements() -> JSONResponse:
+        return JSONResponse({"improvements": manager.list_improvements()})
+
+    @app.get("/api/evals/baseline", response_class=JSONResponse)
+    async def eval_baseline() -> JSONResponse:
+        sid = manager.get_baseline_snapshot_id()
+        snap = manager.get_snapshot(sid) if sid else None
+        return JSONResponse({"baseline_snapshot_id": sid, "snapshot": snap})
+
+    @app.get("/api/evals/snapshots", response_class=JSONResponse)
+    async def eval_snapshots() -> JSONResponse:
+        return JSONResponse({"snapshots": manager.list_snapshots()})
+
     return app

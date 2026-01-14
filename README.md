@@ -34,6 +34,10 @@ python3 -m cursor_ai chat --workspace .
 python3 -m cursor_ai dashboard --workspace . --port 8000
 ```
 
+Open the dashboard:
+- Monitor: `http://127.0.0.1:8000/`
+- Studio (preferences, feature board, chat, evals/improvements): `http://127.0.0.1:8000/studio`
+
 ## Development
 
 Format + lint:

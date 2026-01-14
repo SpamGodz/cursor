@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from cursor_ai.agent import Agent
@@ -142,6 +143,259 @@ class RunManager:
             self._conn, chat_id=chat_id, ts=db.utcnow(), role="assistant", content=out
         )
         return {"assistant": out}
+
+    # -------- Evals / Improvements (100% user-verified) ----------
+    def list_eval_suites(self) -> list[dict[str, Any]]:
+        suites = db.list_eval_suites(self._conn, limit=100)
+        if suites:
+            return suites
+        # Create a tiny default suite so the UI isn't empty.
+        sid = uuid.uuid4().hex
+        now = db.utcnow()
+        db.insert_eval_suite(self._conn, suite_id=sid, name="Default suite", created_at=now)
+        db.insert_eval_case(
+            self._conn,
+            case_id=uuid.uuid4().hex,
+            suite_id=sid,
+            title="Repo scan & plan",
+            goal="Scan the repo and propose a short actionable plan in TODO.md.",
+            rubric="Plan should be concrete and actionable.",
+            now=now,
+        )
+        return db.list_eval_suites(self._conn, limit=100)
+
+    def create_eval_suite(self, *, name: str) -> dict[str, Any]:
+        sid = uuid.uuid4().hex
+        db.insert_eval_suite(self._conn, suite_id=sid, name=name, created_at=db.utcnow())
+        return {"id": sid}
+
+    def list_eval_cases(self, suite_id: str) -> list[dict[str, Any]]:
+        return db.list_eval_cases(self._conn, suite_id, limit=500)
+
+    def add_eval_case(
+        self, *, suite_id: str, title: str, goal: str, rubric: str | None
+    ) -> dict[str, Any]:
+        cid = uuid.uuid4().hex
+        db.insert_eval_case(
+            self._conn,
+            case_id=cid,
+            suite_id=suite_id,
+            title=title,
+            goal=goal,
+            rubric=rubric,
+            now=db.utcnow(),
+        )
+        return {"id": cid}
+
+    def list_eval_runs(self) -> list[dict[str, Any]]:
+        return db.list_eval_runs(self._conn, limit=50)
+
+    def get_eval_run(self, eval_run_id: str) -> dict[str, Any] | None:
+        return db.get_eval_run(self._conn, eval_run_id)
+
+    def get_eval_results(self, eval_run_id: str) -> list[dict[str, Any]]:
+        return db.list_eval_case_results(self._conn, eval_run_id)
+
+    def list_improvements(self) -> list[dict[str, Any]]:
+        return db.list_improvements(self._conn, limit=50)
+
+    def get_baseline_snapshot_id(self) -> str | None:
+        return db.get_preference(self._conn, key="baseline_snapshot_id")
+
+    def set_baseline_snapshot_id(self, snapshot_id: str) -> None:
+        db.set_preference(self._conn, key="baseline_snapshot_id", value=snapshot_id)
+
+    def get_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
+        return db.get_snapshot(self._conn, snapshot_id)
+
+    def list_snapshots(self) -> list[dict[str, Any]]:
+        return db.list_snapshots(self._conn, limit=50)
+
+    async def start_eval(
+        self,
+        *,
+        suite_id: str,
+        workspace: Path,
+        label: str | None = None,
+    ) -> str:
+        """
+        Runs all cases in a suite and stores outputs + metrics.
+        Nothing is automatically "good"—user must approve an eval run as an improvement.
+        """
+        cases = db.list_eval_cases(self._conn, suite_id, limit=500)
+        snapshot_id = uuid.uuid4().hex
+        eval_run_id = uuid.uuid4().hex
+        now = db.utcnow()
+        snapshot = self.get_preferences()
+        db.insert_snapshot(
+            self._conn,
+            snapshot_id=snapshot_id,
+            label=label,
+            created_at=now,
+            data=snapshot,
+        )
+        db.insert_eval_run(
+            self._conn,
+            eval_run_id=eval_run_id,
+            suite_id=suite_id,
+            snapshot_id=snapshot_id,
+            status="queued",
+            created_at=now,
+            cases_total=len(cases),
+        )
+
+        async def runner() -> None:
+            started = db.utcnow()
+            db.update_eval_run(
+                self._conn,
+                eval_run_id=eval_run_id,
+                status="running",
+                started_at=started,
+            )
+            durations: list[float] = []
+            tokens: list[int] = []
+            tool_calls_total = 0
+            done = 0
+            try:
+                enable_write = bool(snapshot.get("enable_write"))
+                model = snapshot.get("model")
+                base_url = snapshot.get("base_url")
+                system_prompt = str(snapshot.get("system_prompt") or "")
+                max_steps = int(snapshot.get("max_steps") or 24)
+                agent = _build_agent(
+                    workspace=workspace,
+                    api_key=None,
+                    base_url=str(base_url) if base_url else None,
+                    model=str(model) if model else None,
+                    enable_write=enable_write,
+                )
+
+                for c in cases:
+                    started_case = perf_counter()
+                    tool_calls = 0
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    total_tokens = 0
+
+                    def on_event(evt: dict[str, Any]) -> None:
+                        nonlocal tool_calls, prompt_tokens, completion_tokens, total_tokens
+                        if evt.get("type") == "tool":
+                            tool_calls += 1
+                        if evt.get("type") == "assistant":
+                            usage = evt.get("usage") or {}
+                            prompt_tokens += int(usage.get("prompt_tokens") or 0)
+                            completion_tokens += int(usage.get("completion_tokens") or 0)
+                            total_tokens += int(usage.get("total_tokens") or 0)
+
+                    messages: list[dict[str, Any]] = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": c["goal"]},
+                    ]
+                    try:
+                        out = await asyncio.to_thread(
+                            agent.run, messages=messages, max_steps=max_steps, on_event=on_event
+                        )
+                        dur = perf_counter() - started_case
+                        db.upsert_eval_case_result(
+                            self._conn,
+                            eval_run_id=eval_run_id,
+                            case_id=c["id"],
+                            status="needs_review",
+                            output=out,
+                            duration_s=dur,
+                            prompt_tokens=prompt_tokens or None,
+                            completion_tokens=completion_tokens or None,
+                            total_tokens=total_tokens or None,
+                            tool_calls=tool_calls,
+                            error=None,
+                        )
+                        durations.append(float(dur))
+                        if total_tokens:
+                            tokens.append(int(total_tokens))
+                        tool_calls_total += int(tool_calls)
+                    except Exception as e:  # noqa: BLE001
+                        dur = perf_counter() - started_case
+                        db.upsert_eval_case_result(
+                            self._conn,
+                            eval_run_id=eval_run_id,
+                            case_id=c["id"],
+                            status="error",
+                            output=None,
+                            duration_s=dur,
+                            prompt_tokens=prompt_tokens or None,
+                            completion_tokens=completion_tokens or None,
+                            total_tokens=total_tokens or None,
+                            tool_calls=tool_calls,
+                            error=repr(e),
+                        )
+                        tool_calls_total += int(tool_calls)
+
+                    done += 1
+                    db.update_eval_run(
+                        self._conn,
+                        eval_run_id=eval_run_id,
+                        cases_done=done,
+                        total_tool_calls=tool_calls_total,
+                    )
+
+                ended = db.utcnow()
+                avg_dur = (sum(durations) / len(durations)) if durations else None
+                avg_tok = (sum(tokens) / len(tokens)) if tokens else None
+                db.update_eval_run(
+                    self._conn,
+                    eval_run_id=eval_run_id,
+                    status="completed",
+                    ended_at=ended,
+                    avg_duration_s=avg_dur,
+                    avg_total_tokens=avg_tok,
+                    total_tool_calls=tool_calls_total,
+                    cases_done=done,
+                )
+            except Exception as e:  # noqa: BLE001
+                ended = db.utcnow()
+                db.update_eval_run(
+                    self._conn,
+                    eval_run_id=eval_run_id,
+                    status="failed",
+                    ended_at=ended,
+                    error=repr(e),
+                    cases_done=done,
+                    total_tool_calls=tool_calls_total,
+                )
+
+        asyncio.create_task(runner())
+        return eval_run_id
+
+    def review_eval_case(
+        self, *, eval_run_id: str, case_id: str, verdict: str, notes: str | None
+    ) -> None:
+        db.review_eval_case_result(
+            self._conn,
+            eval_run_id=eval_run_id,
+            case_id=case_id,
+            verdict=verdict,
+            notes=notes,
+            reviewed_at=db.utcnow(),
+        )
+
+    def approve_improvement(self, *, eval_run_id: str, notes: str | None) -> dict[str, Any]:
+        run = db.get_eval_run(self._conn, eval_run_id)
+        if not run:
+            raise KeyError("eval_run not found")
+        snapshot_id = run["snapshot_id"]
+        iid = uuid.uuid4().hex
+        db.insert_improvement(
+            self._conn,
+            improvement_id=iid,
+            eval_run_id=eval_run_id,
+            snapshot_id=snapshot_id,
+            verdict="approved",
+            notes=notes,
+            verified_at=db.utcnow(),
+        )
+        # Promote approved snapshot to baseline (your definition of improvement).
+        self.set_baseline_snapshot_id(snapshot_id)
+        return {"improvement_id": iid, "baseline_snapshot_id": snapshot_id}
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         return [r.as_dict() for r in db.list_runs(self._conn, limit=limit)]

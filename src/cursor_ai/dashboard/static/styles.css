@@ -247,6 +247,71 @@ h2 {
   gap: 10px;
 }
 
+.evalgrid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.listitem {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.listitem.active {
+  border-color: rgba(110, 168, 255, 0.55);
+  background: rgba(110, 168, 255, 0.10);
+}
+
+.listtitle {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.listmeta {
+  color: rgba(159, 176, 255, 0.85);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.chiprow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.chip.good {
+  border-color: rgba(110, 168, 255, 0.45);
+  background: rgba(110, 168, 255, 0.12);
+}
+
+.chip.bad {
+  border-color: rgba(255, 110, 138, 0.45);
+  background: rgba(255, 110, 138, 0.10);
+}
+
 .bubble {
   max-width: 75%;
   padding: 10px 12px;
